@@ -1,3 +1,5 @@
+import { LOGIN_ASSIST_SCRIPT } from './login-assist.js';
+
 // A same-origin reverse proxy for the Narrow One client. Do not accept an
 // arbitrary destination URL: that would turn this Worker into an open proxy.
 const SITE = new URL('https://narrow.one');
@@ -34,10 +36,13 @@ export function rewriteUrl(value, proxyOrigin) {
   return value;
 }
 
-// Only literal URL references in text files need replacement. Relative paths
-// already resolve against the Worker; do not inspect/alter binary responses.
+// Match complete literal URLs, including third-party URLs, before deciding
+// whether to rewrite them. Otherwise a narrow.one URL embedded unescaped in
+// an OAuth provider's query string could be mistaken for a standalone URL:
+// registered redirect_uri values must not be changed by this proxy.
+// Relative paths already resolve against the Worker; leave binaries alone.
 export function rewriteText(text, proxyOrigin) {
-  return text.replace(/(?:https?:)?\/\/(?:narrow\.one|narrow-one\.com)(?=[/?:#\s"'`<>\\]|$)(?:[^\s"'`<>\\]*)/g,
+  return text.replace(/(?:https?:)?\/\/[^\s"'`<>\\]+/g,
     (url) => rewriteUrl(url, proxyOrigin));
 }
 
@@ -98,8 +103,44 @@ function responseHeaders(upstream, proxyOrigin, target) {
   return headers;
 }
 
+const ISSUERS = new Set([
+  'https://accounts.google.com', 'https://discord.com', 'https://itch.io',
+  'https://www.facebook.com', 'https://appleid.apple.com',
+]);
+
+async function issuerConfig(request, url, fetchUpstream) {
+  if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { allow: 'GET' } });
+  const params = url.searchParams;
+  if ([...params.keys()].some((key) => key !== 'issuer') ||
+      params.getAll('issuer').length !== 1 || !ISSUERS.has(params.get('issuer'))) {
+    return new Response('Invalid issuer', { status: 400 });
+  }
+  const target = new URL('/api/auth/getIssuerConfig', ASSETS);
+  target.searchParams.set('issuer', params.get('issuer'));
+  try {
+    // Only public provider configuration; never forward cookies, authorization,
+    // arbitrary headers or redirect to another host.
+    const upstream = await fetchUpstream(new Request(target, { redirect: 'manual' }));
+    if (upstream.status >= 300 && upstream.status < 400) return new Response('Issuer configuration unavailable', { status: 502 });
+    return new Response(upstream.body, { status: upstream.status, headers: {
+      'content-type': upstream.headers.get('content-type') || 'application/json',
+      'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+    } });
+  } catch {
+    return new Response('Issuer configuration unavailable', { status: 502 });
+  }
+}
+
 export async function handleRequest(request, fetchUpstream = fetch) {
   const url = new URL(request.url);
+  if (url.pathname === '/__narrow_login/issuer') return issuerConfig(request, url, fetchUpstream);
+  if (url.pathname === '/__narrow_login/assist.js') {
+    if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
+    return new Response(request.method === 'HEAD' ? null : LOGIN_ASSIST_SCRIPT, { headers: {
+      'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    } });
+  }
   const target = upstreamFor(url);
   const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
   const headers = requestHeaders(request, target);
@@ -130,7 +171,12 @@ export async function handleRequest(request, fetchUpstream = fetch) {
   const canRewrite = request.method !== 'HEAD' && upstream.status === 200 &&
     !request.headers.has('range') && TEXT_TYPES.test(type);
   if (canRewrite) {
-    const text = rewriteText(await upstream.text(), url.origin);
+    let text = rewriteText(await upstream.text(), url.origin);
+    // Install only on game documents, before its deferred module scripts. This
+    // does not alter the upstream bundle, OAuth URLs, or callback origin.
+    if (/^text\/html\b/i.test(type) && /<script\b[^>]*\bsrc\s*=\s*["'][^"']*\/index-[^"']*\.js/i.test(text)) {
+      text = text.replace(/<head\b[^>]*>/i, '$&<script src="/__narrow_login/assist.js"></script>');
+    }
     // The entity has changed; compressed size, checksums and byte ranges from
     // the upstream representation are no longer valid.
     for (const key of ['content-length', 'content-encoding', 'etag', 'content-md5',

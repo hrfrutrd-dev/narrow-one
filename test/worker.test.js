@@ -51,6 +51,23 @@ test('rewrites text assets without redirecting the separate game backend', async
     'https://narrow.one.evil.example/p');
 });
 
+test('OAuth provider URLs and registered callback parameters are left untouched', async () => {
+  const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&redirect_uri=https://narrow.one/auth/callback&state=xyz';
+  const discord = 'https://discord.com/oauth2/authorize?redirect_uri=https%3A%2F%2Fnarrow.one%2Fcallback&state=123';
+  const body = `<a href="${google}">Google</a><a href="${discord}">Discord</a>` +
+    '<a href="https://narrow.one/game">game</a>';
+  const rewritten = rewriteText(body, PROXY);
+  assert.equal(rewritten, `<a href="${google}">Google</a><a href="${discord}">Discord</a>` +
+    `<a href="${PROXY}/game">game</a>`);
+
+  for (const provider of [google, discord]) {
+    const res = await handleRequest(request('/login'), upstream(new Response(null, {
+      status: 302, headers: { location: provider },
+    }), (req) => assert.equal(new URL(req.url).origin, 'https://narrow.one')));
+    assert.equal(res.headers.get('location'), provider);
+  }
+});
+
 test('GLB and partial content are returned as binary without buffering or rewriting', async () => {
   const glb = new Uint8Array([0x67, 0x6c, 0x54, 0x46, 0, 255]);
   const res = await handleRequest(request('/config/maps/map.glb?hash=a', {
