@@ -36,6 +36,17 @@ export function rewriteUrl(value, proxyOrigin) {
   return value;
 }
 
+// The 2026-10-31 game bundle creates the login dialog before the asynchronous
+// Pelican SDK has necessarily initialized. Patch only the exact observed code;
+// if an upstream update changes it, leave that bundle untouched.
+export function waitForPelicanSdk(text) {
+  const before = 'async showLoginDialog(t="login"){const e=new jn(this.gameWrapper,t);po().dialogManager.addDialog(e);';
+  if (!text.includes('class $n{') || !text.includes('getPeliSdkAsync()') ||
+      text.indexOf(before) === -1 || text.indexOf(before) !== text.lastIndexOf(before)) return text;
+  const after = 'async showLoginDialog(t="login"){await Promise.race([po().getPeliSdkAsync(),new Promise(t=>setTimeout(t,5000))]);if(!po().getPeliSdk())window.dispatchEvent(new Event("narrow-peli-sdk-unavailable"));const e=new jn(this.gameWrapper,t);po().dialogManager.addDialog(e);';
+  return text.replace(before, after);
+}
+
 // Match complete literal URLs, including third-party URLs, before deciding
 // whether to rewrite them. Otherwise a narrow.one URL embedded unescaped in
 // an OAuth provider's query string could be mistaken for a standalone URL:
@@ -172,6 +183,8 @@ export async function handleRequest(request, fetchUpstream = fetch) {
     !request.headers.has('range') && TEXT_TYPES.test(type);
   if (canRewrite) {
     let text = rewriteText(await upstream.text(), url.origin);
+    if (/^\/(?:js\/)?index-[^/]+\.js$/i.test(url.pathname) &&
+        /(?:javascript|x-javascript)\b/i.test(type)) text = waitForPelicanSdk(text);
     // Install only on game documents, before its deferred module scripts. This
     // does not alter the upstream bundle, OAuth URLs, or callback origin.
     if (/^text\/html\b/i.test(type) && /<script\b[^>]*\bsrc\s*=\s*["'][^"']*\/index-[^"']*\.js/i.test(text)) {

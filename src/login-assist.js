@@ -27,6 +27,12 @@ export function installLoginAssist(win) {
     doc.getElementById('narrow-login-assist-text').textContent = message;
   }
 
+  // Emitted only by the exact-version login-dialog compatibility patch. A
+  // timeout may mean the SDK is still loading, so users can retry the dialog.
+  win.addEventListener('narrow-peli-sdk-unavailable', () => {
+    showError('Pelican Partyログインの準備ができませんでした。通信やブラウザー設定を確認し、少し待ってからログイン画面を開き直してください。解決しない場合は開発者ツールのSDKエラーを確認してください。');
+  });
+
   win.fetch = async function (input, init) {
     let url, method;
     try {
@@ -63,6 +69,19 @@ export function installLoginAssist(win) {
     if (!response.ok) {
       if (issuerRequest) showError(`ログイン設定を取得できませんでした（HTTP ${response.status}）。時間をおいて再度お試しください。`);
       else showError(`認証後のゲームセッションを取得できませんでした（HTTP ${response.status}）。上流の認証設定を確認してください。`);
+    } else if (issuerRequest) {
+      // The callback HTML observed on 2026-10-31 permits narrow.one, specific
+      // Poki domains, or its own hostname. It rejects arbitrary Worker origins.
+      // This is a warning only, not a replacement for the server's check.
+      const current = new URL(win.location.href);
+      const host = current.hostname;
+      const allowed = ['http:', 'https:'].includes(current.protocol) && (
+        host === 'narrow.one' || host.endsWith('.narrow.one') ||
+        host === 'narrow-one.com' ||
+        host === 'e2c6282e-13db-47a4-99c8-3297118978c1.poki-gdn.com' ||
+        host === 'e2c6282e-13db-47a4-99c8-3297118978c1.gdn.poki.com'
+      );
+      if (!allowed) showError('現在のドメインは上流の認証コールバックで許可されていない可能性があります。認証後に「invalid origin」と表示される場合、上流運営者による許可設定が必要です。公式サイトでもログインできますが、こちらのセッションとは共有されません。');
     }
     return response;
   };

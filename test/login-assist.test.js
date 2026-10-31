@@ -15,7 +15,7 @@ function browser(fetch) {
       remove() {} }),
     body: { appendChild(node) { nodes.set(node.id, node); } },
   };
-  const win = { fetch, document: doc, location: { href: origin + '/', origin } };
+  const win = { fetch, document: doc, addEventListener() {}, location: { href: origin + '/', origin } };
   installLoginAssist(win);
   return { win, nodes };
 }
