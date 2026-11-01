@@ -1,5 +1,6 @@
 import { LOGIN_ASSIST_SCRIPT } from './login-assist.js';
 import { patchPelicanSdkImport, proxyPelicanSdk } from './pelican-sdk-proxy.js';
+import { proxyPelicanAuth } from './pelican-auth-proxy.js';
 
 // A same-origin reverse proxy for the Narrow One client. Do not accept an
 // arbitrary destination URL: that would turn this Worker into an open proxy.
@@ -145,6 +146,7 @@ async function issuerConfig(request, url, fetchUpstream) {
 
 export async function handleRequest(request, fetchUpstream = fetch) {
   const url = new URL(request.url);
+  if (url.pathname.startsWith('/__pelican/site/') || url.pathname.startsWith('/__pelican/api/')) return proxyPelicanAuth(request, url, fetchUpstream);
   if (url.pathname.startsWith('/__narrow_peli_sdk/')) return proxyPelicanSdk(request, url, fetchUpstream);
   if (url.pathname === '/__narrow_login/issuer') return issuerConfig(request, url, fetchUpstream);
   if (url.pathname === '/__narrow_login/assist.js') {

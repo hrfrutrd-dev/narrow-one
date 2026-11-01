@@ -7,9 +7,9 @@ const origin = 'https://example.workers.dev';
 const path = '/__narrow_peli_sdk/';
 const fixture = 'async function f(){let s="https://js.pelicanparty.games/v1.js";const n=await import(s),{init:o}=n;return o()}';
 
-test('game tries the official SDK first and falls back only on import failure', async () => {
+test('game uses the proxied SDK for Pelican authentication', async () => {
   const patched = patchPelicanSdkImport(fixture);
-  assert.match(patched, /try\{n=await import\(s\)\}catch\{n=await import\("\/__narrow_peli_sdk\/v1.js"\)\}/);
+  assert.match(patched, /await import\("\/__narrow_peli_sdk\/v1.js"\)/);
   assert.equal(patchPelicanSdkImport(fixture + fixture), fixture + fixture);
   assert.equal(patchPelicanSdkImport('const n=await import(s),{init:o}=n;'), 'const n=await import(s),{init:o}=n;');
   const res = await handleRequest(new Request(origin + '/js/index-test.js'), async () => new Response(fixture, { headers: { 'content-type': 'application/javascript' } }));
@@ -25,7 +25,11 @@ test('public SDK module is fetched only from fixed upstream with no credentials'
     assert.equal(req.headers.get('authorization'), null);
     assert.equal(req.headers.get('origin'), null);
     assert.equal(req.redirect, 'manual');
-    return new Response('const base = new URL(import.meta.url); export {base};', { headers: {
+    const sdk = 'const s=function(){const e="https://api.pelicanparty.games/";return e}();async function a(){}' +
+      'function d(){const e=h();if("production"==e)return"https://pelicanparty.games";if("staging"==e)return"https://staging.pelicanparty.games";throw new Error("Unknown environment")}' +
+      'function f(){const e=h();if("production"==e)return"https://pelicanparty.games";if("staging"==e)return"https://staging.pelicanparty.games";throw new Error("Unknown environment")}' +
+      'const base=new URL(import.meta.url);';
+    return new Response(sdk, { headers: {
       'content-type': 'text/javascript', 'set-cookie': 'secret=1',
     } });
   });
