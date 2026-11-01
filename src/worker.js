@@ -145,6 +145,25 @@ async function issuerConfig(request, url, fetchUpstream) {
 
 export async function handleRequest(request, fetchUpstream = fetch) {
   const url = new URL(request.url);
+  if (url.pathname === '/__peli_public_probe') {
+    if (request.method !== 'GET') return new Response(null, { status: 405 });
+    try {
+      const response = await fetchUpstream(new Request('https://pelicanparty.games/login', { redirect: 'manual' }));
+      const html = await response.text();
+      // Return only public page structure. Do not copy HTML, query strings,
+      // cookies, passkey challenges, headers or per-request values.
+      const paths = new Set();
+      for (const match of html.matchAll(/(?:src|href|action|content)\s*=\s*["']([^"']+)["']/gi)) {
+        try {
+          const found = new URL(match[1], 'https://pelicanparty.games/login');
+          if (found.origin === 'https://pelicanparty.games' && /^\/(?:static|auth|login|signup|account)(?:\/|$)/.test(found.pathname)) paths.add(found.pathname);
+        } catch { /* Not a URL. */ }
+      }
+      return Response.json({ status: response.status, paths: [...paths].sort() }, { headers: { 'cache-control': 'no-store' } });
+    } catch {
+      return Response.json({ error: 'upstream unavailable' }, { status: 502, headers: { 'cache-control': 'no-store' } });
+    }
+  }
   if (url.pathname.startsWith('/__narrow_peli_sdk/')) return proxyPelicanSdk(request, url, fetchUpstream);
   if (url.pathname === '/__narrow_login/issuer') return issuerConfig(request, url, fetchUpstream);
   if (url.pathname === '/__narrow_login/assist.js') {
