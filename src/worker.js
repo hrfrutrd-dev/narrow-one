@@ -1,4 +1,5 @@
 import { LOGIN_ASSIST_SCRIPT } from './login-assist.js';
+import { patchPelicanSdkImport, proxyPelicanSdk } from './pelican-sdk-proxy.js';
 
 // A same-origin reverse proxy for the Narrow One client. Do not accept an
 // arbitrary destination URL: that would turn this Worker into an open proxy.
@@ -144,6 +145,7 @@ async function issuerConfig(request, url, fetchUpstream) {
 
 export async function handleRequest(request, fetchUpstream = fetch) {
   const url = new URL(request.url);
+  if (url.pathname.startsWith('/__narrow_peli_sdk/')) return proxyPelicanSdk(request, url, fetchUpstream);
   if (url.pathname === '/__narrow_login/issuer') return issuerConfig(request, url, fetchUpstream);
   if (url.pathname === '/__narrow_login/assist.js') {
     if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
@@ -184,7 +186,9 @@ export async function handleRequest(request, fetchUpstream = fetch) {
   if (canRewrite) {
     let text = rewriteText(await upstream.text(), url.origin);
     if (/^\/(?:js\/)?index-[^/]+\.js$/i.test(url.pathname) &&
-        /(?:javascript|x-javascript)\b/i.test(type)) text = waitForPelicanSdk(text);
+        /(?:javascript|x-javascript)\b/i.test(type)) {
+      text = patchPelicanSdkImport(waitForPelicanSdk(text));
+    }
     // Install only on game documents, before its deferred module scripts. This
     // does not alter the upstream bundle, OAuth URLs, or callback origin.
     if (/^text\/html\b/i.test(type) && /<script\b[^>]*\bsrc\s*=\s*["'][^"']*\/index-[^"']*\.js/i.test(text)) {
