@@ -87,4 +87,7 @@ export function installLoginAssist(win) {
   };
 }
 
-export const LOGIN_ASSIST_SCRIPT = `(${installLoginAssist.toString()})(window);`;
+// Wrangler/esbuild may insert calls to its __name helper inside the function's
+// source. The standalone browser script does not have the Worker's module
+// scope, so provide an equivalent local helper rather than referencing it.
+export const LOGIN_ASSIST_SCRIPT = `(function(){const __name=(target,name)=>Object.defineProperty(target,"name",{value:name,configurable:true});(${installLoginAssist.toString()})(window);})();`;
