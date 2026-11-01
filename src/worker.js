@@ -148,8 +148,17 @@ export async function handleRequest(request, fetchUpstream = fetch) {
   if (url.pathname === '/__peli_public_probe') {
     if (request.method !== 'GET') return new Response(null, { status: 405 });
     try {
-      const response = await fetchUpstream(new Request('https://pelicanparty.games/login', { redirect: 'manual' }));
+      const isSdk = url.searchParams.get('sdk') === '1';
+      const response = await fetchUpstream(new Request(isSdk ? 'https://js.pelicanparty.games/browserSdk/mYIFu3Qf.js?v=1' : 'https://pelicanparty.games/login', { redirect: 'manual' }));
       const html = await response.text();
+      if (isSdk) {
+        const pieces = {};
+        for (const key of ['function h()', 'function d()', 'https://pelicanparty.games', 'const s=function()']) {
+          const i = html.indexOf(key);
+          if (i !== -1) pieces[key] = html.slice(Math.max(0, i - 100), i + 450);
+        }
+        return Response.json({ status: response.status, pieces }, { headers: { 'cache-control': 'no-store' } });
+      }
       // Return only public page structure. Do not copy HTML, query strings,
       // cookies, passkey challenges, headers or per-request values.
       const paths = new Set();
