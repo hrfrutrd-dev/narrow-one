@@ -2,3 +2,5 @@ name = "narrow-one-proxy"
 main = "src/worker.js"
 compatibility_date = "2026-10-22"
 workers_dev = true
+
+[previews]
